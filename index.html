@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Galaxy Forge</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>GALAXY FORGE<span class="blink">_</span></h1>
+      <p class="sub">drag to spawn stellar streams &middot; tap to place gravity wells &middot; birth a spiral galaxy</p>
+    </header>
+
+    <div class="stage">
+      <canvas id="simCanvas" width="720" height="720"></canvas>
+
+      <div class="panel">
+        <div class="group">
+          <label class="group-label">MODE</label>
+          <div class="btnrow">
+            <button id="modeStream" class="mode active">🌠 Spawn Stream</button>
+            <button id="modeBlackhole" class="mode">🕳️ Place Black Hole</button>
+            <button id="modeStar" class="mode">⭐ Place Star</button>
+            <button id="modeErase" class="mode">🧽 Erase Well</button>
+          </div>
+        </div>
+
+        <div class="group">
+          <label class="group-label">PRESETS</label>
+          <div class="btnrow">
+            <button id="presetBigBang">💥 Big Bang</button>
+            <button id="presetClear">Clear Everything</button>
+          </div>
+        </div>
+
+        <div class="group">
+          <label>Gravity Strength <span id="gravVal">1.0</span></label>
+          <input type="range" id="gravity" min="1" max="30" value="10" step="1">
+        </div>
+
+        <div class="group">
+          <label>Particles <span id="particleVal">2500</span></label>
+          <input type="range" id="particleCount" min="500" max="6000" value="2500" step="500">
+        </div>
+
+        <div class="group">
+          <label>Trail Fade <span id="fadeVal">0.06</span></label>
+          <input type="range" id="trailFade" min="2" max="40" value="6" step="1">
+        </div>
+
+        <div class="group">
+          <label>Stream Spread <span id="spreadVal">12°</span></label>
+          <input type="range" id="spread" min="0" max="60" value="12" step="1">
+        </div>
+
+        <p class="hint" id="hintText">Drag anywhere to launch a stream of stars in that direction.</p>
+      </div>
+    </div>
+  </div>
+
+<script src="main.js"></script>
+</body>
+</html>
