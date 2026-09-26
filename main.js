@@ -1,156 +1,205 @@
-/*
-  GALAXY FORGE
-  Interactive 2D gravity sandbox with particles, stars, and black holes.
-*/
 (function () {
   'use strict';
-
   const canvas = document.getElementById('simCanvas');
   const ctx = canvas.getContext('2d');
-  const SIZE = canvas.width;
-  const SOFTENING = 14;
-  const dt = 1;
-
-  let attractors = [];
-  let particles = [];
-  let G = 9;
-  let fadeAlpha = 0.06;
-  let spreadDeg = 12;
+  const W = canvas.width;
+  const H = canvas.height;
+  const particles = [];
+  const wells = [];
   let mode = 'stream';
+  let gravity = 9;
+  let fade = 0.06;
+  let spread = 12;
   let dragging = false;
-  let lastX = 0;
-  let lastY = 0;
+  let last = null;
 
-  function addAttractor(x, y, isBlackHole) {
-    attractors.push({x, y, mass: isBlackHole ? 26000 : 6000, isBlackHole, eventHorizon: isBlackHole ? 10 : 0, maxMass: isBlackHole ? 120000 : 6000});
-  }
-  function eraseNearest(x, y) {
-    let best = -1, distance = Infinity;
-    attractors.forEach((a, i) => { const d = Math.hypot(a.x - x, a.y - y); if (d < distance) { distance = d; best = i; } });
-    if (best >= 0 && distance < 60) attractors.splice(best, 1);
-  }
-  function randomEdgeSpawn() {
+  const status = document.getElementById('hintText');
+  const countEl = document.getElementById('particleVal');
+  const gravityEl = document.getElementById('gravVal');
+  const fadeEl = document.getElementById('fadeVal');
+  const spreadEl = document.getElementById('spreadVal');
+  const countSlider = document.getElementById('particleCount');
+
+  function edgeParticle() {
     const side = Math.floor(Math.random() * 4);
-    if (side === 0) return [Math.random() * SIZE, 4];
-    if (side === 1) return [Math.random() * SIZE, SIZE - 4];
-    if (side === 2) return [4, Math.random() * SIZE];
-    return [SIZE - 4, Math.random() * SIZE];
+    let x, y;
+    if (side === 0) { x = Math.random() * W; y = 2; }
+    else if (side === 1) { x = Math.random() * W; y = H - 2; }
+    else if (side === 2) { x = 2; y = Math.random() * H; }
+    else { x = W - 2; y = Math.random() * H; }
+    const dx = W / 2 - x;
+    const dy = H / 2 - y;
+    const d = Math.hypot(dx, dy) || 1;
+    const tangentX = -dy / d;
+    const tangentY = dx / d;
+    const speed = 0.5 + Math.random() * 0.6;
+    return { x, y, vx: dx / d * speed * 0.45 + tangentX * speed * 0.55, vy: dy / d * speed * 0.45 + tangentY * speed * 0.55 };
   }
-  function makeParticle() {
-    const [x, y] = randomEdgeSpawn();
-    const dx = SIZE / 2 - x, dy = SIZE / 2 - y, distance = Math.hypot(dx, dy) || 1;
-    const speed = 0.45 + Math.random() * 0.6;
-    const tx = -dy / distance, ty = dx / distance, mix = 0.55;
-    return {x, y, vx: dx / distance * speed * (1 - mix) + tx * speed * mix, vy: dy / distance * speed * (1 - mix) + ty * speed * mix, hueOffset: Math.random()};
+
+  function setParticleCount(n) {
+    while (particles.length < n) particles.push(edgeParticle());
+    particles.length = n;
   }
-  function setParticleCount(count) {
-    if (count > particles.length) while (particles.length < count) particles.push(makeParticle());
-    else particles.length = count;
+
+  function addWell(x, y, blackHole) {
+    wells.push({ x, y, mass: blackHole ? 26000 : 6000, blackHole, radius: blackHole ? 10 : 0 });
   }
-  function spawnStream(x, y, dx, dy) {
-    const baseAngle = Math.atan2(dy, dx), spread = spreadDeg * Math.PI / 180;
-    const speed = Math.min(6, Math.hypot(dx, dy) * 0.35 + 1.2);
-    for (let i = 0; i < 8; i++) {
+
+  function removeWell(x, y) {
+    let index = -1;
+    let best = 60;
+    wells.forEach((well, i) => {
+      const d = Math.hypot(well.x - x, well.y - y);
+      if (d < best) { best = d; index = i; }
+    });
+    if (index >= 0) wells.splice(index, 1);
+  }
+
+  function resetParticles() {
+    particles.length = 0;
+    setParticleCount(Number(countSlider.value));
+  }
+
+  function presetBigBang() {
+    wells.length = 0;
+    addWell(W / 2, H / 2, true);
+    particles.forEach(p => {
+      const angle = Math.random() * Math.PI * 2;
+      const radius = 35 + Math.random() * 110;
+      p.x = W / 2 + Math.cos(angle) * radius;
+      p.y = H / 2 + Math.sin(angle) * radius;
+      const speed = 2.5 + Math.random() * 1.5;
+      p.vx = -Math.sin(angle) * speed;
+      p.vy = Math.cos(angle) * speed;
+    });
+  }
+
+  function canvasPoint(event) {
+    const rect = canvas.getBoundingClientRect();
+    return { x: (event.clientX - rect.left) * W / rect.width, y: (event.clientY - rect.top) * H / rect.height };
+  }
+
+  function streamAt(x, y, dx, dy) {
+    const angle = Math.atan2(dy, dx);
+    const amount = Math.min(6, Math.hypot(dx, dy) * 0.35 + 1.2);
+    const cone = spread * Math.PI / 180;
+    for (let i = 0; i < 10; i++) {
       const p = particles[Math.floor(Math.random() * particles.length)];
       if (!p) return;
-      const angle = baseAngle + (Math.random() - 0.5) * spread;
-      p.x = x + (Math.random() - 0.5) * 5; p.y = y + (Math.random() - 0.5) * 5;
-      p.vx = Math.cos(angle) * speed; p.vy = Math.sin(angle) * speed;
+      const a = angle + (Math.random() - 0.5) * cone;
+      p.x = x + (Math.random() - 0.5) * 6;
+      p.y = y + (Math.random() - 0.5) * 6;
+      p.vx = Math.cos(a) * amount;
+      p.vy = Math.sin(a) * amount;
     }
   }
-  function resetParticles() { particles = []; setParticleCount(Number(document.getElementById('particleCount').value)); }
-  function stepPhysics() {
-    for (const p of particles) {
+
+  function physics() {
+    particles.forEach(p => {
       let ax = 0, ay = 0;
-      for (const a of attractors) {
-        const dx = a.x - p.x, dy = a.y - p.y;
-        const distanceSquared = dx * dx + dy * dy + SOFTENING * SOFTENING;
-        const inverseDistance = 1 / Math.sqrt(distanceSquared);
-        const force = G * a.mass * inverseDistance * inverseDistance * inverseDistance;
-        ax += force * dx; ay += force * dy;
-      }
-      p.vx += ax * 0.0016 * dt; p.vy += ay * 0.0016 * dt;
+      wells.forEach(well => {
+        const dx = well.x - p.x;
+        const dy = well.y - p.y;
+        const r2 = dx * dx + dy * dy + 14 * 14;
+        const invR = 1 / Math.sqrt(r2);
+        const force = gravity * well.mass * invR * invR * invR;
+        ax += dx * force;
+        ay += dy * force;
+      });
+      p.vx += ax * 0.0016;
+      p.vy += ay * 0.0016;
       const speed = Math.hypot(p.vx, p.vy);
       if (speed > 14) { p.vx = p.vx / speed * 14; p.vy = p.vy / speed * 14; }
-      p.x += p.vx; p.y += p.vy;
-      let consumed = false;
-      for (const a of attractors) {
-        if (!a.isBlackHole) continue;
-        if (Math.hypot(a.x - p.x, a.y - p.y) < a.eventHorizon) { consumed = true; a.mass = Math.min(a.maxMass, a.mass + 12); a.eventHorizon = Math.min(34, a.eventHorizon + 0.02); break; }
-      }
-      const outside = p.x < -40 || p.x > SIZE + 40 || p.y < -40 || p.y > SIZE + 40;
-      if (consumed || outside) Object.assign(p, makeParticle());
-    }
+      p.x += p.vx;
+      p.y += p.vy;
+      let eaten = false;
+      wells.forEach(well => {
+        if (well.blackHole && Math.hypot(well.x - p.x, well.y - p.y) < well.radius) {
+          eaten = true;
+          well.mass = Math.min(120000, well.mass + 12);
+          well.radius = Math.min(34, well.radius + 0.02);
+        }
+      });
+      if (eaten || p.x < -40 || p.x > W + 40 || p.y < -40 || p.y > H + 40) Object.assign(p, edgeParticle());
+    });
   }
-  const stops = [[0, [18, 26, 70]], [0.22, [40, 110, 200]], [0.45, [90, 210, 220]], [0.65, [255, 196, 90]], [0.82, [255, 100, 180]], [1, [255, 255, 255]]];
-  function particleColor(speed) {
+
+  function color(speed) {
     const t = Math.max(0, Math.min(1, speed / 9));
-    let left = stops[0], right = stops[stops.length - 1];
-    for (let i = 0; i < stops.length - 1; i++) if (t >= stops[i][0] && t <= stops[i + 1][0]) { left = stops[i]; right = stops[i + 1]; break; }
-    const local = (t - left[0]) / ((right[0] - left[0]) || 1);
-    const c = left[1].map((v, i) => Math.round(v + (right[1][i] - v) * local));
-    return `rgb(${c[0]},${c[1]},${c[2]})`;
+    const palette = [[18,26,70],[40,110,200],[90,210,220],[255,196,90],[255,100,180],[255,255,255]];
+    const position = t * (palette.length - 1);
+    const i = Math.min(palette.length - 2, Math.floor(position));
+    const f = position - i;
+    const a = palette[i], b = palette[i + 1];
+    return `rgb(${Math.round(a[0] + (b[0] - a[0]) * f)},${Math.round(a[1] + (b[1] - a[1]) * f)},${Math.round(a[2] + (b[2] - a[2]) * f)})`;
   }
-  function drawAttractors() {
-    for (const a of attractors) {
-      if (a.isBlackHole) {
-        const radius = a.eventHorizon * 3.4;
-        const glow = ctx.createRadialGradient(a.x, a.y, a.eventHorizon * 0.6, a.x, a.y, radius);
-        glow.addColorStop(0, 'rgba(255,200,120,0.9)'); glow.addColorStop(0.35, 'rgba(255,120,180,0.4)'); glow.addColorStop(1, 'rgba(255,120,180,0)');
-        ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(a.x, a.y, radius, 0, Math.PI * 2); ctx.fill();
-        ctx.globalCompositeOperation = 'source-over'; ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(a.x, a.y, a.eventHorizon, 0, Math.PI * 2); ctx.fill();
-        ctx.globalCompositeOperation = 'lighter'; ctx.strokeStyle = 'rgba(255,220,160,0.8)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(a.x, a.y, a.eventHorizon + 1.5, 0, Math.PI * 2); ctx.stroke();
-      } else {
-        const radius = 24, glow = ctx.createRadialGradient(a.x, a.y, 0, a.x, a.y, radius);
-        glow.addColorStop(0, 'rgba(255,255,255,0.95)'); glow.addColorStop(0.3, 'rgba(120,200,255,0.5)'); glow.addColorStop(1, 'rgba(120,200,255,0)');
-        ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(a.x, a.y, radius, 0, Math.PI * 2); ctx.fill();
-      }
-    }
-  }
+
   function render() {
-    ctx.globalCompositeOperation = 'source-over'; ctx.fillStyle = `rgba(0,0,4,${fadeAlpha})`; ctx.fillRect(0, 0, SIZE, SIZE);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = `rgba(0,0,4,${fade})`;
+    ctx.fillRect(0, 0, W, H);
     ctx.globalCompositeOperation = 'lighter';
-    for (const p of particles) { ctx.fillStyle = particleColor(Math.hypot(p.vx, p.vy)); ctx.fillRect(p.x, p.y, 1.8, 1.8); }
-    drawAttractors(); ctx.globalCompositeOperation = 'source-over';
+    particles.forEach(p => { ctx.fillStyle = color(Math.hypot(p.vx, p.vy)); ctx.fillRect(p.x, p.y, 2, 2); });
+    wells.forEach(well => {
+      const r = well.blackHole ? well.radius * 3.5 : 24;
+      const glow = ctx.createRadialGradient(well.x, well.y, 0, well.x, well.y, r);
+      glow.addColorStop(0, well.blackHole ? 'rgba(255,220,130,.95)' : 'rgba(255,255,255,.95)');
+      glow.addColorStop(0.35, well.blackHole ? 'rgba(255,90,180,.45)' : 'rgba(100,200,255,.5)');
+      glow.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath(); ctx.arc(well.x, well.y, r, 0, Math.PI * 2); ctx.fill();
+      if (well.blackHole) {
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = '#000';
+        ctx.beginPath(); ctx.arc(well.x, well.y, well.radius, 0, Math.PI * 2); ctx.fill();
+        ctx.globalCompositeOperation = 'lighter';
+      }
+    });
+    ctx.globalCompositeOperation = 'source-over';
   }
-  function canvasPosition(event) {
-    const rect = canvas.getBoundingClientRect(), point = event.touches ? event.touches[0] : event;
-    return [(point.clientX - rect.left) * SIZE / rect.width, (point.clientY - rect.top) * SIZE / rect.height];
+
+  function setMode(next) {
+    mode = next;
+    const buttons = { stream: 'modeStream', blackhole: 'modeBlackhole', star: 'modeStar', erase: 'modeErase' };
+    Object.entries(buttons).forEach(([key, id]) => document.getElementById(id).classList.toggle('active', key === mode));
+    status.textContent = ({stream:'Drag on the canvas to launch stars.', blackhole:'Tap the canvas to place a black hole.', star:'Tap the canvas to place a star.', erase:'Tap near a gravity well to remove it.'})[mode];
   }
-  function setMode(nextMode) {
-    mode = nextMode;
-    const buttons = {stream: document.getElementById('modeStream'), blackhole: document.getElementById('modeBlackhole'), star: document.getElementById('modeStar'), erase: document.getElementById('modeErase')};
-    Object.entries(buttons).forEach(([key, button]) => button.classList.toggle('active', key === mode));
-    const hints = {stream: 'Drag anywhere to launch a stream of stars in that direction.', blackhole: 'Tap to drop a black hole. Matter crossing its event horizon is recycled.', star: 'Tap to place a lighter gravity well that pulls but does not consume.', erase: 'Tap near a well to remove it.'};
-    document.getElementById('hintText').textContent = hints[mode];
-  }
-  function pointerDown(event) {
-    event.preventDefault(); const [x, y] = canvasPosition(event);
-    if (mode === 'blackhole') return addAttractor(x, y, true);
-    if (mode === 'star') return addAttractor(x, y, false);
-    if (mode === 'erase') return eraseNearest(x, y);
-    dragging = true; lastX = x; lastY = y;
-  }
-  function pointerMove(event) {
+
+  canvas.addEventListener('pointerdown', event => {
+    event.preventDefault();
+    canvas.setPointerCapture(event.pointerId);
+    const p = canvasPoint(event);
+    if (mode === 'blackhole') return addWell(p.x, p.y, true);
+    if (mode === 'star') return addWell(p.x, p.y, false);
+    if (mode === 'erase') return removeWell(p.x, p.y);
+    dragging = true;
+    last = p;
+  });
+  canvas.addEventListener('pointermove', event => {
     if (!dragging || mode !== 'stream') return;
-    event.preventDefault(); const [x, y] = canvasPosition(event);
-    if (Math.hypot(x - lastX, y - lastY) > 1) spawnStream(x, y, x - lastX, y - lastY);
-    lastX = x; lastY = y;
-  }
-  function pointerUp() { dragging = false; }
-  canvas.addEventListener('mousedown', pointerDown); canvas.addEventListener('mousemove', pointerMove); window.addEventListener('mouseup', pointerUp);
-  canvas.addEventListener('touchstart', pointerDown, {passive: false}); canvas.addEventListener('touchmove', pointerMove, {passive: false}); canvas.addEventListener('touchend', pointerUp);
-  document.getElementById('modeStream').onclick = () => setMode('stream'); document.getElementById('modeBlackhole').onclick = () => setMode('blackhole'); document.getElementById('modeStar').onclick = () => setMode('star'); document.getElementById('modeErase').onclick = () => setMode('erase');
-  document.getElementById('presetClear').onclick = () => { attractors = []; resetParticles(); };
-  document.getElementById('presetBigBang').onclick = () => {
-    attractors = []; addAttractor(SIZE / 2, SIZE / 2, true);
-    for (const p of particles) { const angle = Math.random() * Math.PI * 2, radius = 40 + Math.random() * 100; p.x = SIZE / 2 + Math.cos(angle) * radius; p.y = SIZE / 2 + Math.sin(angle) * radius; const speed = 2.5 + Math.random() * 1.5; p.vx = -Math.sin(angle) * speed; p.vy = Math.cos(angle) * speed; }
-  };
-  const gravity = document.getElementById('gravity'); gravity.oninput = () => { G = Number(gravity.value) * 0.9; document.getElementById('gravVal').textContent = (Number(gravity.value) / 10).toFixed(1); };
-  const particleSlider = document.getElementById('particleCount'); particleSlider.oninput = () => { setParticleCount(Number(particleSlider.value)); document.getElementById('particleVal').textContent = particleSlider.value; };
-  const fadeSlider = document.getElementById('trailFade'); fadeSlider.oninput = () => { fadeAlpha = Number(fadeSlider.value) / 100; document.getElementById('fadeVal').textContent = fadeAlpha.toFixed(2); };
-  const spreadSlider = document.getElementById('spread'); spreadSlider.oninput = () => { spreadDeg = Number(spreadSlider.value); document.getElementById('spreadVal').textContent = `${spreadDeg}\u00B0`; };
-  setParticleCount(Number(particleSlider.value)); document.getElementById('presetBigBang').click(); ctx.fillStyle = '#000'; ctx.fillRect(0, 0, SIZE, SIZE);
-  function loop() { stepPhysics(); render(); requestAnimationFrame(loop); }
+    event.preventDefault();
+    const p = canvasPoint(event);
+    streamAt(p.x, p.y, p.x - last.x, p.y - last.y);
+    last = p;
+  });
+  canvas.addEventListener('pointerup', () => { dragging = false; });
+  canvas.addEventListener('pointercancel', () => { dragging = false; });
+
+  document.getElementById('modeStream').onclick = () => setMode('stream');
+  document.getElementById('modeBlackhole').onclick = () => setMode('blackhole');
+  document.getElementById('modeStar').onclick = () => setMode('star');
+  document.getElementById('modeErase').onclick = () => setMode('erase');
+  document.getElementById('presetClear').onclick = () => { wells.length = 0; resetParticles(); };
+  document.getElementById('presetBigBang').onclick = presetBigBang;
+  document.getElementById('gravity').oninput = event => { gravity = Number(event.target.value) * 0.9; gravityEl.textContent = (Number(event.target.value) / 10).toFixed(1); };
+  countSlider.oninput = event => { setParticleCount(Number(event.target.value)); countEl.textContent = event.target.value; };
+  document.getElementById('trailFade').oninput = event => { fade = Number(event.target.value) / 100; fadeEl.textContent = fade.toFixed(2); };
+  document.getElementById('spread').oninput = event => { spread = Number(event.target.value); spreadEl.textContent = `${spread}\u00B0`; };
+
+  setParticleCount(Number(countSlider.value));
+  presetBigBang();
+  status.textContent = 'Ready: drag the canvas, or choose a placement mode.';
+
+  function loop() { physics(); render(); requestAnimationFrame(loop); }
   loop();
 })();
